@@ -1,0 +1,165 @@
+name: "CI: Examen Final - Corrección Ponderada (JDK 24)"
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  grade-exam:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK 24 (Early Access)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+
+      - name: Instalar Ant
+        run: sudo apt-get update && sudo apt-get install -y ant
+
+      - name: Descargar Librerías de Prueba (JUnit 4)
+        run: |
+          mkdir -p lib
+          curl -L -o lib/junit-4.13.2.jar https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
+          curl -L -o lib/hamcrest-core-1.3.jar https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+
+      - name: Ejecutar Tests (Ant)
+        id: run-tests
+        continue-on-error: true
+        run: |
+          ant -Dlibs.junit_4.classpath="lib/junit-4.13.2.jar:lib/hamcrest-core-1.3.jar" \
+              -lib lib/junit-4.13.2.jar \
+              -lib lib/hamcrest-core-1.3.jar \
+              clean compile compile-test test
+
+      - name: 📝 Calcular Nota Ponderada
+        run: |
+          # ==========================================================
+          # 1. DEFINICIÓN DE PESOS (TOTAL = 20 Puntos)
+          # ==========================================================
+          P_REGISTRAR=4    # Registrar es básico
+          P_BUSCAR=5       # Buscar es el corazón (Hashing)
+          P_MARCAR=3       # Actualizar es intermedio
+          P_CALCULAR=5     # Calcular huecos es difícil (Lógica matemática)
+          P_LISTAR=3       # Listar es fácil
+          
+          # NOTA: El test de "Estructura" no suma puntos, pero si falla, ANULA TODO.
+          
+          # ==========================================================
+          # 2. ANÁLISIS DE RESULTADOS
+          # ==========================================================
+          RESULTS_DIR="build/test/results"
+          SCORE=0
+          
+          if [ ! -d "$RESULTS_DIR" ]; then
+            echo "❌ ERROR CRÍTICO: No se generaron reportes de prueba. El código ni siquiera compila."
+            exit 1
+          fi
+
+          # Función auxiliar para saber si un test específico pasó
+          # Retorna 0 (true) si pasó, 1 (false) si falló
+          check_pass() {
+            local test_name=$1
+            # Buscamos en los XML si el testcase tiene hijos (failure/error)
+            # Grep busca: <testcase ... name="testName" ... > (si cierra con /> pasó, si tiene contenido puede haber fallado)
+            # Esta lógica busca si existe una etiqueta <failure> o <error> DENTRO del bloque de ese test.
+          
+            # Buscamos el archivo que contiene el test
+            local file=$(grep -l "name=\"$test_name\"" $RESULTS_DIR/*.xml 2>/dev/null)
+          
+            if [ -z "$file" ]; then return 1; fi # No se encontró el test (borrado?)
+          
+            # Extraemos el bloque del test y miramos si tiene fallo
+            if grep -A 5 "name=\"$test_name\"" "$file" | grep -qE "<failure|<error"; then
+              return 1 # Falló
+            else
+              return 0 # Pasó
+            fi
+          }
+
+          echo "=================================================="
+          echo "           BOLETA DE NOTAS AUTOMÁTICA             "
+          echo "=================================================="
+          
+          # --- VALIDACIÓN CRÍTICA (ANTI-TRAMPA) ---
+          ESTRUCTURA_OK=false
+          if check_pass "testValidarEstructuraFisica"; then
+             ESTRUCTURA_OK=true
+             echo "✅ ARQUITECTURA: Correcta (RandomAccessFile usado)"
+          else
+             echo "🚫 ARQUITECTURA: INCORRECTA (Detectado uso de Listas/Txt plano)"
+          fi
+
+          # --- CÁLCULO DE PUNTAJE ---
+          
+          # 1. Registrar
+          if check_pass "testRegistrarContenedor"; then
+             echo "   [+$P_REGISTRAR pts] Registrar Contenedor: CORRECTO"
+             SCORE=$((SCORE + P_REGISTRAR))
+          else
+             echo "   [ 0 pts] Registrar Contenedor: FALLÓ"
+          fi
+          
+          # 2. Buscar
+          if check_pass "testBuscarContenedor"; then
+             echo "   [+$P_BUSCAR pts] Buscar (Hashing): CORRECTO"
+             SCORE=$((SCORE + P_BUSCAR))
+          else
+             echo "   [ 0 pts] Buscar (Hashing): FALLÓ"
+          fi
+          
+          # 3. Marcar Dañado
+          if check_pass "testMarcarComoDanado"; then
+             echo "   [+$P_MARCAR pts] Actualizar In-Situ: CORRECTO"
+             SCORE=$((SCORE + P_MARCAR))
+          else
+             echo "   [ 0 pts] Actualizar In-Situ: FALLÓ"
+          fi
+
+          # 4. Calcular Espacio
+          if check_pass "testCalcularEspacioDesperdiciado"; then
+             echo "   [+$P_CALCULAR pts] Lógica de Huecos: CORRECTO"
+             SCORE=$((SCORE + P_CALCULAR))
+          else
+             echo "   [ 0 pts] Lógica de Huecos: FALLÓ"
+          fi
+
+          # 5. Listar Activos
+          if check_pass "testListarSoloActivos"; then
+             echo "   [+$P_LISTAR pts] Listado: CORRECTO"
+             SCORE=$((SCORE + P_LISTAR))
+          else
+             echo "   [ 0 pts] Listado: FALLÓ"
+          fi
+
+          echo "--------------------------------------------------"
+          
+          # --- APLICACIÓN DE LA PENALIDAD ---
+          if [ "$ESTRUCTURA_OK" = false ]; then
+             echo ""
+             echo "🚨 ALERTA DE INVALIDACIÓN 🚨"
+             echo "El test 'testValidarEstructuraFisica' ha fallado."
+             echo "Esto significa que no se cumplió con el requisito técnico del examen"
+             echo "(Uso obligatorio de RandomAccessFile con longitud fija)."
+             echo "Aunque los métodos funcionen lógicamente, la implementación técnica es errónea."
+             echo ""
+             echo "PUNTAJE ACUMULADO: $SCORE"
+             echo "PENALIDAD: -100%"
+             SCORE=0
+          fi
+
+          echo "=================================================="
+          echo "🏆 NOTA FINAL: $SCORE / 20"
+          echo "=================================================="
+
+          if [ "$SCORE" -lt 11 ]; then
+            exit 1 # Marca el workflow en Rojo
+          else
+            exit 0 # Marca el workflow en Verde
+          fi
