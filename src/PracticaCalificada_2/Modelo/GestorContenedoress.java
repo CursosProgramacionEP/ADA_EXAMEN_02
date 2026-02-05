@@ -1,7 +1,7 @@
 package PracticaCalificada_2.Modelo;
 
 import java.io.RandomAccessFile;
-
+//
 public class GestorContenedoress {
 
     private RandomAccessFile archivo;
