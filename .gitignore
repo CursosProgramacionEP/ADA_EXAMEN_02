@@ -1,0 +1,16 @@
+# Compilados y artefactos de build
+build/
+dist/
+*.class
+*.jar
+
+# Configuración local de IDE
+.idea/
+nbproject/private/
+*.iml
+
+# Archivos de datos generados por las pruebas
+*.dat
+
+# Sistema
+.DS_Store

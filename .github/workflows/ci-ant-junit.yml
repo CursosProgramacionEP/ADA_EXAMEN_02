@@ -1,0 +1,478 @@
+name: "CI: Ant - Compilación y Pruebas Examen (JUnit4)"
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 24
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+
+      - name: Install Ant
+        run: |
+          sudo apt-get update && sudo apt-get install -y ant
+
+      - name: Prepare JUnit 4 libraries
+        run: |
+          mkdir -p lib
+          curl -L -o lib/junit-4.13.2.jar https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar
+          curl -L -o lib/hamcrest-core-1.3.jar https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar
+
+      - name: Verificar estructura del proyecto
+        run: |
+          echo "📁 Estructura del proyecto:"
+          ls -la
+          echo ""
+          echo "📄 Archivos en src/PracticaCalificada_2/Modelo:"
+          ls -la src/PracticaCalificada_2/Modelo/ || echo "❌ No existe src/PracticaCalificada_2/Modelo/"
+          echo ""
+          echo "📄 Archivos en test/PracticaCalificada_2/Modelo:"
+          ls -la test/PracticaCalificada_2/Modelo/ || echo "❌ No existe test/PracticaCalificada_2/Modelo/"
+          echo ""
+          echo "📄 Build.xml existe:"
+          ls -la build.xml || echo "❌ No existe build.xml"
+
+      - name: Compilar proyecto
+        run: |
+          echo "🔨 Compilando proyecto..."
+          ant -Dlibs.junit_4.classpath="lib/junit-4.13.2.jar:lib/hamcrest-core-1.3.jar" \
+              -lib lib/junit-4.13.2.jar \
+              -lib lib/hamcrest-core-1.3.jar \
+              clean compile
+          echo "✅ Código fuente compilado"
+
+      - name: Compilar tests
+        run: |
+          echo "🔨 Compilando tests..."
+          ant -Dlibs.junit_4.classpath="lib/junit-4.13.2.jar:lib/hamcrest-core-1.3.jar" \
+              -lib lib/junit-4.13.2.jar \
+              -lib lib/hamcrest-core-1.3.jar \
+              compile-test
+          echo "✅ Tests compilados"
+
+      - name: Ejecutar tests
+        run: |
+          echo "🧪 Ejecutando tests..."
+          ant -Dlibs.junit_4.classpath="lib/junit-4.13.2.jar:lib/hamcrest-core-1.3.jar" \
+              -lib lib/junit-4.13.2.jar \
+              -lib lib/hamcrest-core-1.3.jar \
+              test
+          echo "✅ Tests ejecutados exitosamente"
+
+      - name: Mostrar resultados de tests
+        if: always()
+        run: |
+          echo ""
+          echo "================================================"
+          echo "           RESULTADOS DE TESTS                  "
+          echo "================================================"
+          echo ""
+          
+          if [ -d "build/test/results" ]; then
+            if find build/test/results -name "TEST-*.xml" -type f 2>/dev/null | grep -q .; then
+              TOTAL=$(find build/test/results -name "TEST-*.xml" -exec grep -h "tests=" {} \; 2>/dev/null | sed 's/.*tests="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s}')
+              FAILED=$(find build/test/results -name "TEST-*.xml" -exec grep -h "failures=" {} \; 2>/dev/null | sed 's/.*failures="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s}')
+              ERRORS=$(find build/test/results -name "TEST-*.xml" -exec grep -h "errors=" {} \; 2>/dev/null | sed 's/.*errors="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s}')
+              
+              echo "Total de tests: ${TOTAL:-0}"
+              echo "Tests fallidos: ${FAILED:-0}"
+              echo "Errores: ${ERRORS:-0}"
+              echo "Tests exitosos: $((${TOTAL:-0} - ${FAILED:-0} - ${ERRORS:-0}))"
+              
+              if [ "${FAILED:-0}" -gt 0 ] || [ "${ERRORS:-0}" -gt 0 ]; then
+                echo ""
+                echo "❌ Algunos tests no pasaron"
+              else
+                echo ""
+                echo "✅ Todos los tests pasaron exitosamente"
+              fi
+            else
+              echo "⚠️  No se encontraron archivos de resultados XML"
+            fi
+          else
+            echo "⚠️  No se encontró el directorio build/test/results"
+          fi
+          
+          echo ""
+          echo "================================================"
+
+      - name: Subir reportes de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/test/results/
+          retention-days: 30
+
+      - name: Calcular y mostrar calificación
+        if: always()
+        run: |
+          echo ""
+          echo "================================================"
+          echo "         RÚBRICA DE CALIFICACIÓN (20 pts)      "
+          echo "================================================"
+          echo ""
+          echo "Distribución de puntaje por método:"
+          echo ""
+          echo "  📝 testRegistrarContenedor       → 4 puntos"
+          echo "  📝 testBuscarContenedor          → 5 puntos"
+          echo "  📝 testMarcarComoDanado          → 3 puntos"
+          echo "  📝 testCalcularEspacioDesperdiciado → 5 puntos"
+          echo "  📝 testListarSoloActivos         → 3 puntos"
+          echo "                                     ─────────"
+          echo "                                TOTAL: 20 puntos"
+          echo ""
+          echo "  🔒 testValidarEstructuraFisica → Arquitectura (no suma puntos, pero anula todo si falla)"
+          echo ""
+          echo "================================================"
+          echo ""
+          
+          if [ -d "build/test/results" ]; then
+            if find build/test/results -name "TEST-*.xml" -type f 2>/dev/null | grep -q .; then
+              # Inicializar variables
+              SCORE=0
+              TOTAL_POSSIBLE=20
+              ARQUITECTURA_OK=true
+              
+              echo "Cálculo de calificación:"
+              echo ""
+              
+              # Función para verificar si un test individual pasó
+              check_test_passed() {
+                local test_name=$1
+                
+                # Buscar todos los archivos XML de resultados
+                local xml_files=$(find build/test/results -name "TEST-*.xml" -type f 2>/dev/null)
+                
+                if [ -z "$xml_files" ]; then
+                  return 1
+                fi
+                
+                # Buscar el test en todos los archivos XML
+                for xml_file in $xml_files; do
+                  if grep -q "testcase.*name=\"$test_name\"" "$xml_file" 2>/dev/null; then
+                    local test_block=$(awk "/<testcase.*name=\"$test_name\"/{flag=1} flag{print; if(/\/>/ || /<\/testcase>/) exit}" "$xml_file")
+                    
+                    if [ -n "$test_block" ]; then
+                      if echo "$test_block" | grep -q "<failure\|<error"; then
+                        return 1
+                      else
+                        return 0
+                      fi
+                    fi
+                  fi
+                done
+                
+                return 1
+              }
+              
+              # Verificar testValidarEstructuraFisica PRIMERO (crítico)
+              if check_test_passed "testValidarEstructuraFisica"; then
+                echo "  ✅ testValidarEstructuraFisica pasó → Arquitectura CORRECTA (RandomAccessFile)"
+              else
+                echo "  ❌ testValidarEstructuraFisica falló → Arquitectura INCORRECTA"
+                ARQUITECTURA_OK=false
+              fi
+              
+              echo ""
+              
+              # Verificar testRegistrarContenedor
+              if check_test_passed "testRegistrarContenedor"; then
+                echo "  ✅ testRegistrarContenedor pasó → +4 puntos"
+                SCORE=$((SCORE + 4))
+              else
+                echo "  ❌ testRegistrarContenedor falló → 0 puntos"
+              fi
+              
+              # Verificar testBuscarContenedor
+              if check_test_passed "testBuscarContenedor"; then
+                echo "  ✅ testBuscarContenedor pasó → +5 puntos"
+                SCORE=$((SCORE + 5))
+              else
+                echo "  ❌ testBuscarContenedor falló → 0 puntos"
+              fi
+              
+              # Verificar testMarcarComoDanado
+              if check_test_passed "testMarcarComoDanado"; then
+                echo "  ✅ testMarcarComoDanado pasó → +3 puntos"
+                SCORE=$((SCORE + 3))
+              else
+                echo "  ❌ testMarcarComoDanado falló → 0 puntos"
+              fi
+              
+              # Verificar testCalcularEspacioDesperdiciado
+              if check_test_passed "testCalcularEspacioDesperdiciado"; then
+                echo "  ✅ testCalcularEspacioDesperdiciado pasó → +5 puntos"
+                SCORE=$((SCORE + 5))
+              else
+                echo "  ❌ testCalcularEspacioDesperdiciado falló → 0 puntos"
+              fi
+              
+              # Verificar testListarSoloActivos
+              if check_test_passed "testListarSoloActivos"; then
+                echo "  ✅ testListarSoloActivos pasó → +3 puntos"
+                SCORE=$((SCORE + 3))
+              else
+                echo "  ❌ testListarSoloActivos falló → 0 puntos"
+              fi
+              
+              echo ""
+              echo "================================================"
+              
+              # Aplicar penalización si la arquitectura es incorrecta
+              if [ "$ARQUITECTURA_OK" = false ]; then
+                echo ""
+                echo "🚨 ALERTA DE INVALIDACIÓN 🚨"
+                echo "El test 'testValidarEstructuraFisica' ha fallado."
+                echo "Esto significa que no se cumplió con el requisito técnico:"
+                echo "USO OBLIGATORIO de RandomAccessFile con registros de tamaño fijo."
+                echo ""
+                echo "Puntaje acumulado: $SCORE puntos"
+                echo "PENALIDAD: -100% (Requisito técnico no cumplido)"
+                SCORE=0
+              fi
+              
+              echo ""
+              echo "================================================"
+              echo "           CALIFICACIÓN FINAL                   "
+              echo "================================================"
+              echo ""
+              echo "  📊 Puntaje obtenido: $SCORE / $TOTAL_POSSIBLE puntos"
+              
+              # Calcular porcentaje
+              if [ $TOTAL_POSSIBLE -gt 0 ]; then
+                PERCENTAGE=$((SCORE * 100 / TOTAL_POSSIBLE))
+              else
+                PERCENTAGE=0
+              fi
+              echo "  📈 Porcentaje: $PERCENTAGE%"
+              
+              # Determinar letra de calificación
+              if [ $PERCENTAGE -ge 90 ]; then
+                GRADE="A (Excelente)"
+              elif [ $PERCENTAGE -ge 80 ]; then
+                GRADE="B (Bueno)"
+              elif [ $PERCENTAGE -ge 70 ]; then
+                GRADE="C (Satisfactorio)"
+              elif [ $PERCENTAGE -ge 60 ]; then
+                GRADE="D (Suficiente)"
+              else
+                GRADE="F (Insuficiente)"
+              fi
+              
+              echo "  🎓 Calificación: $GRADE"
+              echo ""
+              
+              # Mensaje final
+              if [ $SCORE -eq $TOTAL_POSSIBLE ]; then
+                echo "  🎉 ¡PERFECTO! Todos los tests pasaron"
+              elif [ $SCORE -ge 14 ]; then
+                echo "  👍 ¡Buen trabajo! Aprobado"
+              elif [ $SCORE -ge 10 ]; then
+                echo "  ⚠️  Aprobado, pero puede mejorar"
+              else
+                echo "  ❌ Necesita más trabajo"
+              fi
+              
+              echo ""
+              echo "================================================"
+            else
+              echo "⚠️  No se pudieron calcular los puntajes"
+              echo "   No se encontraron resultados de tests válidos"
+              exit 1
+            fi
+          else
+            echo "⚠️  No se pudo calcular la calificación"
+            echo "   No se encontró el directorio de resultados"
+            exit 1
+          fi
+
+      - name: Verificar aprobación
+        if: always()
+        run: |
+          echo ""
+          echo "🔍 Verificando si todos los tests pasaron..."
+          
+          if [ -d "build/test/results" ]; then
+            if find build/test/results -name "TEST-*.xml" -type f 2>/dev/null | grep -q .; then
+              FAILED=$(find build/test/results -name "TEST-*.xml" -exec grep -h "failures=" {} \; 2>/dev/null | sed 's/.*failures="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s}')
+              ERRORS=$(find build/test/results -name "TEST-*.xml" -exec grep -h "errors=" {} \; 2>/dev/null | sed 's/.*errors="\([0-9]*\)".*/\1/' | awk '{s+=$1} END {print s}')
+              
+              if [ "${FAILED:-0}" -gt 0 ] || [ "${ERRORS:-0}" -gt 0 ]; then
+                echo "❌ WORKFLOW FALLIDO: Hay tests que no pasaron"
+                echo "   Tests fallidos: ${FAILED:-0}"
+                echo "   Errores: ${ERRORS:-0}"
+                exit 1
+              else
+                echo "✅ WORKFLOW EXITOSO: Todos los tests pasaron"
+                exit 0
+              fi
+            else
+              echo "❌ WORKFLOW FALLIDO: No se encontraron resultados de tests"
+              exit 1
+            fi
+          else
+            echo "❌ WORKFLOW FALLIDO: No se ejecutaron los tests"
+            exit 1
+          fi
+
+
+      - name: 📝 Calcular Nota Ponderada
+        run: |
+          # ==========================================================
+          # 1. DEFINICIÓN DE PESOS (TOTAL = 20 Puntos)
+          # ==========================================================
+          P_REGISTRAR=4    # Registrar es básico
+          P_BUSCAR=5       # Buscar es el corazón (Hashing)
+          P_MARCAR=3       # Actualizar es intermedio
+          P_CALCULAR=5     # Calcular huecos es difícil (Lógica matemática)
+          P_LISTAR=3       # Listar es fácil
+          
+          # NOTA: El test de "Estructura" no suma puntos, pero si falla, ANULA TODO.
+          
+          # ==========================================================
+          # 2. ANÁLISIS DE RESULTADOS
+          # ==========================================================
+          RESULTS_DIR="build/test/results"
+          SCORE=0
+          
+          if [ ! -d "$RESULTS_DIR" ]; then
+            echo "❌ ERROR CRÍTICO: No se generaron reportes de prueba. El código ni siquiera compila."
+            exit 1
+          fi
+          
+          # DEBUG: Mostrar archivos XML generados
+          echo "🔍 DEBUG: Archivos XML encontrados:"
+          ls -la "$RESULTS_DIR"/*.xml 2>/dev/null || echo "No se encontraron archivos XML"
+          echo ""
+          
+          # DEBUG: Mostrar contenido COMPLETO del XML
+          echo "🔍 DEBUG: Contenido COMPLETO del archivo XML:"
+          cat "$RESULTS_DIR"/*.xml 2>/dev/null
+          echo ""
+          echo "=========================================="
+          echo ""
+
+          # Función auxiliar para saber si un test específico pasó
+          # Retorna 0 (true) si pasó, 1 (false) si falló
+          check_pass() {
+            local test_name=$1
+            
+            # Buscamos el archivo que contiene el test
+            local file=$(grep -l "name=\"$test_name\"" $RESULTS_DIR/*.xml 2>/dev/null | head -1)
+          
+            if [ -z "$file" ]; then 
+              echo "   🔍 DEBUG: Test '$test_name' NO encontrado en XML"
+              return 1
+            fi
+          
+            # Extraemos el bloque del test y miramos si tiene fallo
+            local test_block=$(grep -A 30 "name=\"$test_name\"" "$file")
+            
+            echo "   🔍 DEBUG: Test '$test_name' encontrado en: $file"
+            
+            if echo "$test_block" | grep -qE "<failure|<error"; then
+              echo "   🔍 DEBUG: Test '$test_name' tiene <failure> o <error>"
+              # Mostrar el mensaje de error
+              local error_msg=$(echo "$test_block" | grep -A 5 "<failure\|<error" | head -10)
+              echo "   📋 Mensaje de error:"
+              echo "$error_msg" | sed 's/^/      /'
+              return 1 # Falló
+            else
+              echo "   🔍 DEBUG: Test '$test_name' PASÓ (sin errores)"
+              return 0 # Pasó
+            fi
+          }
+
+          echo "=================================================="
+          echo "           BOLETA DE NOTAS AUTOMÁTICA             "
+          echo "=================================================="
+          
+          # --- VALIDACIÓN CRÍTICA (ANTI-TRAMPA) ---
+          ESTRUCTURA_OK=false
+          if check_pass "testValidarEstructuraFisica"; then
+             ESTRUCTURA_OK=true
+             echo "✅ ARQUITECTURA: Correcta (RandomAccessFile usado)"
+          else
+             echo "🚫 ARQUITECTURA: INCORRECTA (Detectado uso de Listas/Txt plano)"
+          fi
+
+          # --- CÁLCULO DE PUNTAJE ---
+          
+          # 1. Registrar
+          if check_pass "testRegistrarContenedor"; then
+             echo "   [+$P_REGISTRAR pts] Registrar Contenedor: CORRECTO"
+             SCORE=$((SCORE + P_REGISTRAR))
+          else
+             echo "   [ 0 pts] Registrar Contenedor: FALLÓ"
+          fi
+          
+          # 2. Buscar
+          if check_pass "testBuscarContenedor"; then
+             echo "   [+$P_BUSCAR pts] Buscar (Hashing): CORRECTO"
+             SCORE=$((SCORE + P_BUSCAR))
+          else
+             echo "   [ 0 pts] Buscar (Hashing): FALLÓ"
+          fi
+          
+          # 3. Marcar Dañado
+          if check_pass "testMarcarComoDanado"; then
+             echo "   [+$P_MARCAR pts] Actualizar In-Situ: CORRECTO"
+             SCORE=$((SCORE + P_MARCAR))
+          else
+             echo "   [ 0 pts] Actualizar In-Situ: FALLÓ"
+          fi
+
+          # 4. Calcular Espacio
+          if check_pass "testCalcularEspacioDesperdiciado"; then
+             echo "   [+$P_CALCULAR pts] Lógica de Huecos: CORRECTO"
+             SCORE=$((SCORE + P_CALCULAR))
+          else
+             echo "   [ 0 pts] Lógica de Huecos: FALLÓ"
+          fi
+
+          # 5. Listar Activos
+          if check_pass "testListarSoloActivos"; then
+             echo "   [+$P_LISTAR pts] Listado: CORRECTO"
+             SCORE=$((SCORE + P_LISTAR))
+          else
+             echo "   [ 0 pts] Listado: FALLÓ"
+          fi
+
+          echo "--------------------------------------------------"
+          
+          # --- APLICACIÓN DE LA PENALIDAD ---
+          if [ "$ESTRUCTURA_OK" = false ]; then
+             echo ""
+             echo "🚨 ALERTA DE INVALIDACIÓN 🚨"
+             echo "El test 'testValidarEstructuraFisica' ha fallado."
+             echo "Esto significa que no se cumplió con el requisito técnico del examen"
+             echo "(Uso obligatorio de RandomAccessFile con longitud fija)."
+             echo "Aunque los métodos funcionen lógicamente, la implementación técnica es errónea."
+             echo ""
+             echo "PUNTAJE ACUMULADO: $SCORE"
+             echo "PENALIDAD: -100%"
+             SCORE=0
+          fi
+
+          echo "=================================================="
+          echo "🏆 NOTA FINAL: $SCORE / 20"
+          echo "=================================================="
+
+          if [ "$SCORE" -lt 11 ]; then
+            exit 1 # Marca el workflow en Rojo
+          else
+            exit 0 # Marca el workflow en Verde
+          fi
